@@ -1,0 +1,70 @@
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    container_name: pgflow-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: pgflow
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgflow-db-data:/var/lib/postgresql/data
+    networks:
+      - pgflow-network
+
+  # Backend API
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pgflow-api
+    ports:
+      - "${API_PORT:-8081}:3001"
+    environment:
+      - PORT=3001
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/pgflow?schema=public
+      - JWT_SECRET=${JWT_SECRET:-pgflow-super-secret-key-change-in-production}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-15m}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-pgflow-refresh-secret-key-change-in-production}
+      - JWT_REFRESH_EXPIRES_IN=${JWT_REFRESH_EXPIRES_IN:-7d}
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
+    volumes:
+      # Mount source code for live reloading during development
+      - ./backend/src:/app/src
+      - ./backend/prisma:/app/prisma
+    depends_on:
+      - db
+    networks:
+      - pgflow-network
+
+  # Frontend Next.js
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pgflow-web
+    ports:
+      - "${WEB_PORT:-8080}:3000"
+    environment:
+      - NODE_ENV=development
+      # Tell frontend where the API is (inside Docker network)
+      - NEXT_PUBLIC_API_URL=http://localhost:${API_PORT:-8081}
+    volumes:
+      # Mount source code for live reloading during development
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    depends_on:
+      - api
+    networks:
+      - pgflow-network
+
+# Shared network so containers can talk to each other
+networks:
+  pgflow-network:
+    driver: bridge
+
+volumes:
+  pgflow-db-data:
